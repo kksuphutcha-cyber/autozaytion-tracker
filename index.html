@@ -1,684 +1,424 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  setDoc,
-  doc, 
-  onSnapshot, 
-  serverTimestamp,
-  query,
-  where
-} from 'firebase/firestore';
-import { 
-  CheckCircle2, 
-  Circle, 
-  Plus, 
-  Trash2, 
-  Code, 
-  Video, 
-  DollarSign, 
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  Trophy,
-  Activity,
-  Filter,
-  Layers,
-  LayoutList,
-  Sun,
-  Moon,
-  ListTodo,
-  CalendarDays,
-  BarChart3,
-  ChevronLeft,
-  ChevronRight,
-  Target,
-  Heart,
-  Book,
-  Coffee,
-  Sparkles
-} from 'lucide-react';
-
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-// --- Helper Functions for Date ---
-const getStartOfWeek = (date) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
-  return new Date(d.setDate(diff));
-};
-
-const formatDateKey = (date) => {
-  return date.toISOString().split('T')[0];
-};
-
-const getWeekDays = (startDate) => {
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(startDate);
-    d.setDate(startDate.getDate() + i);
-    days.push(d);
-  }
-  return days;
-};
-
-// --- Constants ---
-const HABITS = {
-  morning: [
-    { id: 'sleep', label: '8Hr. Sleep', icon: Moon },
-    { id: 'gym', label: 'Gym', icon: Activity },
-    { id: 'breakfast', label: 'Breakfast', icon: Sun }, 
-    { id: 'meditation', label: 'Meditation', icon: Circle },
-  ],
-  evening: [
-    { id: 'ailearn', label: 'Learning', icon: Book },
-    { id: 'dinner', label: 'Dinner', icon: Calendar }, 
-  ]
-};
-
-// Generate 12 Months Data
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const ALL_MONTHS = MONTH_NAMES.map((name, index) => {
-  const monthNum = index + 1;
-  const startWeek = (index * 4) + 1;
-  return {
-    id: monthNum,
-    shortName: name,
-    label: `${name} (Month ${monthNum})`,
-    weeks: [startWeek, startWeek + 1, startWeek + 2, startWeek + 3]
-  };
-});
-
-// Calculate total weeks (48 weeks for simplicity in this project planner model)
-const TOTAL_WEEKS = Array.from({ length: 48 }, (_, i) => i + 1);
-
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-// --- WHEEL OF LIFE CATEGORIES ---
-const CATEGORIES = [
-  { id: 'health', label: 'Health', icon: Activity, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
-  { id: 'career', label: 'Career & Money', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
-  { id: 'relationship', label: 'Relationships', icon: Heart, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/30' },
-  { id: 'growth', label: 'Self Growth', icon: Book, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30' },
-  { id: 'leisure', label: 'Leisure', icon: Coffee, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
-  { id: 'spiritual', label: 'Spiritual', icon: Sparkles, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30' },
-];
-
-// --- Main Component ---
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' or 'routine'
-
-  // Task State
-  const [tasks, setTasks] = useState([]);
-  const [newTask, setNewTask] = useState('');
-  
-  // Selection State for Adding Tasks
-  const [inputMonthId, setInputMonthId] = useState(1);
-  const [inputWeek, setInputWeek] = useState(1);
-  const [selectedDay, setSelectedDay] = useState('Monday');
-  const [selectedCategory, setSelectedCategory] = useState('health'); // Default to first category
-
-  // View/Filter State
-  const [expandedSection, setExpandedSection] = useState(1);
-  const [viewMode, setViewMode] = useState('week');
-  const [viewMonthId, setViewMonthId] = useState(1); // Default to Jan
-
-  // Routine State
-  const [routines, setRoutines] = useState({}); 
-  const [currentDate, setCurrentDate] = useState(new Date());
-
-  // --- Auth & Data Fetching ---
-  useEffect(() => {
-    const initAuth = async () => {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-            await signInAnonymously(auth);
-        }
-    };
-    initAuth();
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoZaytion Tracker</title>
     
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (!currentUser) setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    <!-- 1. นำเข้า Tailwind CSS สำหรับความสวยงาม -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. นำเข้า Babel เพื่อช่วยแปลภาษา JSX (แก้ Error Unexpected token <) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  // Fetch Tasks
-  useEffect(() => {
-    if (!user) return;
-    const q = collection(db, 'artifacts', appId, 'users', user.uid, 'tasks');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      loadedTasks.sort((a, b) => {
-        if (a.week !== b.week) return a.week - b.week;
-        const dayOrder = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 7 };
-        return dayOrder[a.day] - dayOrder[b.day];
-      });
-      setTasks(loadedTasks);
-      if (activeTab === 'tasks') setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [user, activeTab]);
-
-  // Fetch Routines
-  useEffect(() => {
-    if (!user) return;
-    const q = collection(db, 'artifacts', appId, 'users', user.uid, 'routines');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedRoutines = {};
-      snapshot.forEach(doc => {
-        loadedRoutines[doc.id] = doc.data();
-      });
-      setRoutines(loadedRoutines);
-      if (activeTab === 'routine') setLoading(false);
-    }, (error) => console.error(error));
-    return () => unsubscribe();
-  }, [user, activeTab]);
-
-  // --- Actions ---
-  const handleAddTask = async (e) => {
-    e.preventDefault();
-    if (!newTask.trim() || !user) return;
-    try {
-      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'tasks'), {
-        text: newTask,
-        week: parseInt(inputWeek),
-        day: selectedDay,
-        category: selectedCategory,
-        completed: false,
-        createdAt: serverTimestamp()
-      });
-      setNewTask('');
-      // Optional: Switch view to the month we just added to
-      setViewMonthId(inputMonthId);
-      setExpandedSection(parseInt(inputWeek));
-    } catch (error) { console.error(error); }
-  };
-
-  const toggleTask = async (taskId, currentStatus) => {
-    if (!user) return;
-    const taskRef = doc(db, 'artifacts', appId, 'users', user.uid, 'tasks', taskId);
-    await updateDoc(taskRef, { completed: !currentStatus });
-  };
-
-  const deleteTask = async (taskId) => {
-    if (!user) return;
-    if (window.confirm('ยืนยันลบรายการนี้?')) {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tasks', taskId));
+    <!-- 3. ตั้งค่าให้รองรับการเขียน React ในไฟล์เดียว -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+        }
     }
-  };
+    </script>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans">
+    
+    <!-- จุดที่แอปจะถูกวาดลงไป -->
+    <div id="root"></div>
 
-  const toggleRoutine = async (dateKey, habitId, currentValue) => {
-    if (!user) return;
-    const routineRef = doc(db, 'artifacts', appId, 'users', user.uid, 'routines', dateKey);
-    await setDoc(routineRef, { [habitId]: !currentValue }, { merge: true });
-  };
+    <!-- 4. โค้ดโปรแกรม (ใส่ type="text/babel" และ data-type="module" เพื่อให้ Babel ทำงาน) -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { 
+            CheckCircle2, Circle, Plus, Trash2, Code, Video, DollarSign, Calendar,
+            ChevronDown, ChevronUp, Trophy, Activity, Filter, Layers, LayoutList,
+            Sun, Moon, ListTodo, CalendarDays, BarChart3, ChevronLeft, ChevronRight,
+            Target, Heart, Book, Coffee, Sparkles
+        } from 'lucide-react';
 
-  // --- Input Logic: Update Week options when Input Month changes ---
-  const currentInputMonthData = ALL_MONTHS.find(m => m.id === inputMonthId) || ALL_MONTHS[0];
-  
-  // Update input week default when month changes
-  const handleInputMonthChange = (e) => {
-    const newMonthId = Number(e.target.value);
-    setInputMonthId(newMonthId);
-    // Automatically select the first week of the new month
-    const newMonthData = ALL_MONTHS.find(m => m.id === newMonthId);
-    if (newMonthData) {
-      setInputWeek(newMonthData.weeks[0]);
-    }
-  };
+        // --- ข้อมูลคงที่ (Configuration) ---
+        const HABITS = {
+            morning: [
+                { id: 'sleep', label: '8Hr. Sleep', icon: Moon },
+                { id: 'gym', label: 'Gym', icon: Activity },
+                { id: 'breakfast', label: 'Breakfast', icon: Sun }, 
+                { id: 'meditation', label: 'Meditation', icon: Circle },
+            ],
+            evening: [
+                { id: 'ailearn', label: 'Learning', icon: Book },
+                { id: 'dinner', label: 'Dinner', icon: Calendar }, 
+            ]
+        };
 
-  // --- Stats & Logic ---
-  const taskStats = useMemo(() => {
-    const total = tasks.length;
-    const completed = tasks.filter(t => t.completed).length;
-    const percentage = total === 0 ? 0 : Math.round((completed / total) * 100);
-    const xp = completed * 100;
-    const level = Math.floor(xp / 500) + 1;
-    return { total, completed, percentage, xp, level };
-  }, [tasks]);
+        const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const ALL_MONTHS = MONTH_NAMES.map((name, index) => {
+            const monthNum = index + 1;
+            const startWeek = (index * 4) + 1;
+            return {
+                id: monthNum,
+                shortName: name,
+                label: `${name} (Month ${monthNum})`,
+                weeks: [startWeek, startWeek + 1, startWeek + 2, startWeek + 3]
+            };
+        });
 
-  const routineStats = useMemo(() => {
-    const startOfWeek = getStartOfWeek(currentDate);
-    const weekDays = getWeekDays(startOfWeek);
-    let totalPossible = 0;
-    let totalCompleted = 0;
+        const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const CATEGORIES = [
+            { id: 'health', label: 'Health', icon: Activity, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
+            { id: 'career', label: 'Career & Money', icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+            { id: 'relationship', label: 'Relationships', icon: Heart, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/30' },
+            { id: 'growth', label: 'Self Growth', icon: Book, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30' },
+            { id: 'leisure', label: 'Leisure', icon: Coffee, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+            { id: 'spiritual', label: 'Spiritual', icon: Sparkles, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30' },
+        ];
 
-    weekDays.forEach(day => {
-      const key = formatDateKey(day);
-      const dayData = routines[key] || {};
-      const habits = [...HABITS.morning, ...HABITS.evening];
-      totalPossible += habits.length;
-      habits.forEach(h => {
-        if (dayData[h.id]) totalCompleted++;
-      });
-    });
+        // --- Helper Functions ---
+        const getStartOfWeek = (date) => {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            return new Date(d.setDate(diff));
+        };
+        const formatDateKey = (date) => date.toISOString().split('T')[0];
+        const getWeekDays = (startDate) => {
+            const days = [];
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(startDate);
+                d.setDate(startDate.getDate() + i);
+                days.push(d);
+            }
+            return days;
+        };
 
-    const percentage = totalPossible === 0 ? 0 : Math.round((totalCompleted / totalPossible) * 100);
-    return { percentage, totalCompleted, totalPossible };
-  }, [routines, currentDate]);
-
-  // --- Filter Logic ---
-  const currentViewMonthData = ALL_MONTHS.find(m => m.id === viewMonthId) || ALL_MONTHS[0];
-  const filteredTasks = tasks.filter(t => currentViewMonthData.weeks.includes(t.week));
-
-  // --- Components ---
-  const CategoryBadge = ({ categoryId }) => {
-    const cat = CATEGORIES.find(c => c.id === categoryId) || CATEGORIES[0];
-    const Icon = cat.icon;
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cat.color} bg-slate-800 border ${cat.border}`}>
-        <Icon size={10} /> {cat.label}
-      </span>
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
-        <Activity className="animate-spin mr-2 text-blue-500" /> กำลังโหลดข้อมูล...
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans pb-24">
-      {/* Top Header */}
-      <div className="bg-slate-800 border-b border-slate-700 sticky top-0 z-20 shadow-lg">
-        <div className="max-w-3xl mx-auto p-4 flex justify-between items-center">
+        // --- Main Component ---
+        function App() {
+            const [activeTab, setActiveTab] = useState('tasks');
             
-            {/* --- LOGO SECTION (แก้ไขใหม่ให้แล้ว) --- */}
-            <div className="flex items-center gap-3">
-              {/* รูป Logo: ตั้งค่า w-12 h-12 (48px) เพื่อไม่ให้ใหญ่คับจอ */}
-              <img 
-                src="logo.png" 
-                alt="AutoZaytion Logo" 
-                className="w-12 h-12 object-contain rounded-full shadow-sm bg-slate-700/50" 
-                onError={(e) => {
-                  e.target.style.display = 'none'; // ซ่อนรูปถ้าหาไฟล์ไม่เจอ
-                }}
-              />
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  AutoZaytion
-                </h1>
-                <p className="text-xs text-slate-400">
-                  {activeTab === 'tasks' ? 'Project Tracker' : 'Goal Routine'}
-                </p>
-              </div>
-            </div>
-            
-            {activeTab === 'tasks' ? (
-              <div className="text-right">
-                <div className="text-xl font-bold text-yellow-400 flex items-center justify-end gap-1">
-                  <Trophy size={18} /> LV.{taskStats.level}
-                </div>
-                <p className="text-xs text-slate-500">{taskStats.percentage}% Tasks Done</p>
-              </div>
-            ) : (
-               <div className="text-right">
-                <div className={`text-xl font-bold flex items-center justify-end gap-1 ${routineStats.percentage >= 80 ? 'text-green-400' : 'text-orange-400'}`}>
-                  <Activity size={18} /> {routineStats.percentage}%
-                </div>
-                <p className="text-xs text-slate-500">Weekly Discipline</p>
-              </div>
-            )}
-        </div>
-      </div>
+            // ใช้ LocalStorage แทน Firebase เพื่อความง่ายในการ Deploy ครั้งแรก
+            const [tasks, setTasks] = useState(() => {
+                const saved = localStorage.getItem('autozaytion_tasks');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [routines, setRoutines] = useState(() => {
+                const saved = localStorage.getItem('autozaytion_routines');
+                return saved ? JSON.parse(saved) : {};
+            });
 
-      <main className="max-w-3xl mx-auto p-4">
-        
-        {/* === TASKS TAB === */}
-        {activeTab === 'tasks' && (
-          <div className="space-y-6">
-             
-            {/* 1. Month Navigator (Tile Scroll) - Main Navigation */}
-            <div className="overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
-               <div className="flex gap-2 min-w-max">
-                 {ALL_MONTHS.map(month => (
-                   <button
-                     key={month.id}
-                     onClick={() => setViewMonthId(month.id)}
-                     className={`flex flex-col items-center justify-center px-4 py-2 rounded-xl border transition-all ${
-                       viewMonthId === month.id 
-                         ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/50' 
-                         : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                     }`}
-                   >
-                     <span className="text-sm font-bold">{month.shortName}</span>
-                     <span className="text-[10px] opacity-70">Weeks {month.weeks[0]}-{month.weeks[3]}</span>
-                   </button>
-                 ))}
-               </div>
-            </div>
+            // Save to LocalStorage whenever data changes
+            useEffect(() => {
+                localStorage.setItem('autozaytion_tasks', JSON.stringify(tasks));
+            }, [tasks]);
+            useEffect(() => {
+                localStorage.setItem('autozaytion_routines', JSON.stringify(routines));
+            }, [routines]);
 
-            {/* 2. Input Section - Refined with Month Select */}
-            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 backdrop-blur-sm">
-              <h2 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-                <Plus size={16} className="text-green-400" /> เพิ่มภารกิจใหม่
-              </h2>
-              <form onSubmit={handleAddTask} className="space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {/* Select Month for Input */}
-                  <select 
-                    value={inputMonthId}
-                    onChange={handleInputMonthChange}
-                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                  >
-                    {ALL_MONTHS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
+            const [newTask, setNewTask] = useState('');
+            const [inputMonthId, setInputMonthId] = useState(1);
+            const [inputWeek, setInputWeek] = useState(1);
+            const [selectedDay, setSelectedDay] = useState('Monday');
+            const [selectedCategory, setSelectedCategory] = useState('health');
+            const [expandedSection, setExpandedSection] = useState(1);
+            const [viewMode, setViewMode] = useState('week');
+            const [viewMonthId, setViewMonthId] = useState(1);
+            const [currentDate, setCurrentDate] = useState(new Date());
 
-                  {/* Select Week (Filtered by Month) */}
-                  <select 
-                    value={inputWeek}
-                    onChange={(e) => setInputWeek(Number(e.target.value))}
-                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                  >
-                    {currentInputMonthData.weeks.map(w => (
-                      <option key={w} value={w}>Week {w}</option>
-                    ))}
-                  </select>
+            // --- Actions ---
+            const handleAddTask = (e) => {
+                e.preventDefault();
+                if (!newTask.trim()) return;
+                const newTaskObj = {
+                    id: Date.now().toString(),
+                    text: newTask,
+                    week: parseInt(inputWeek),
+                    day: selectedDay,
+                    category: selectedCategory,
+                    completed: false,
+                    createdAt: new Date().toISOString()
+                };
+                setTasks([...tasks, newTaskObj]);
+                setNewTask('');
+                setViewMonthId(inputMonthId);
+                setExpandedSection(parseInt(inputWeek));
+            };
 
-                  {/* Select Day */}
-                  <select 
-                    value={selectedDay}
-                    onChange={(e) => setSelectedDay(e.target.value)}
-                    className="col-span-2 sm:col-span-2 bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                  >
-                    {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
+            const toggleTask = (taskId) => {
+                setTasks(tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t));
+            };
 
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {CATEGORIES.map(cat => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                        selectedCategory === cat.id 
-                          ? `${cat.bg} ${cat.border} ${cat.color} ring-1 ring-offset-0 ring-${cat.color.split('-')[1]}`
-                          : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <cat.icon size={12} /> {cat.label}
-                    </button>
-                  ))}
-                </div>
-                
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={newTask}
-                    onChange={(e) => setNewTask(e.target.value)}
-                    placeholder="ภารกิจที่ต้องทำ..." 
-                    className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                  />
-                  <button type="submit" disabled={!newTask.trim()} className="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50">
-                    <Plus size={18} />
-                  </button>
-                </div>
-              </form>
-            </div>
+            const deleteTask = (taskId) => {
+                if (window.confirm('ยืนยันลบรายการนี้?')) {
+                    setTasks(tasks.filter(t => t.id !== taskId));
+                }
+            };
 
-            {/* 3. View Toggle (Week/Cat) */}
-            <div className="flex justify-end">
-              <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-700 w-full sm:w-auto">
-                <button onClick={() => setViewMode('week')} className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs font-medium ${viewMode === 'week' ? 'bg-slate-700 text-white' : 'text-slate-500'}`}><LayoutList size={14} /> View by Week</button>
-                <button onClick={() => setViewMode('category')} className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs font-medium ${viewMode === 'category' ? 'bg-slate-700 text-white' : 'text-slate-500'}`}><Layers size={14} /> View by Cat</button>
-              </div>
-            </div>
+            const toggleRoutine = (dateKey, habitId) => {
+                setRoutines(prev => {
+                    const dayData = prev[dateKey] || {};
+                    return {
+                        ...prev,
+                        [dateKey]: { ...dayData, [habitId]: !dayData[habitId] }
+                    };
+                });
+            };
 
-            {/* 4. Task Display Area */}
-            {viewMode === 'week' && (
-              <div className="space-y-4 animate-in fade-in duration-300">
-                <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-                   <Target size={20} className="text-blue-400" /> 
-                   Plan for {currentViewMonthData.label}
-                </h3>
+            // --- Logic Updates ---
+            const currentInputMonthData = ALL_MONTHS.find(m => m.id === inputMonthId) || ALL_MONTHS[0];
+            const handleInputMonthChange = (e) => {
+                const newMonthId = Number(e.target.value);
+                setInputMonthId(newMonthId);
+                const newMonthData = ALL_MONTHS.find(m => m.id === newMonthId);
+                if (newMonthData) setInputWeek(newMonthData.weeks[0]);
+            };
 
-                {currentViewMonthData.weeks.map(weekNum => {
-                   const tasksInWeek = tasks.filter(t => t.week === weekNum);
-                   const isExpanded = expandedSection === weekNum;
-                   const progress = tasksInWeek.length > 0 ? Math.round((tasksInWeek.filter(t => t.completed).length / tasksInWeek.length) * 100) : 0;
+            // --- Stats ---
+            const taskStats = useMemo(() => {
+                const total = tasks.length;
+                const completed = tasks.filter(t => t.completed).length;
+                const percentage = total === 0 ? 0 : Math.round((completed / total) * 100);
+                const xp = completed * 100;
+                const level = Math.floor(xp / 500) + 1;
+                return { total, completed, percentage, xp, level };
+            }, [tasks]);
 
-                   return (
-                     <div key={weekNum} className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                       <button onClick={() => setExpandedSection(isExpanded ? null : weekNum)} className="w-full flex items-center justify-between p-4 hover:bg-slate-750 transition-colors">
-                         <div className="flex items-center gap-3">
-                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${progress === 100 && tasksInWeek.length > 0 ? 'bg-green-500 text-white' : 'bg-slate-700 text-slate-300'}`}>{weekNum}</div>
-                           <div className="text-left"><h3 className="text-sm font-semibold text-slate-200">สัปดาห์ที่ {weekNum}</h3><p className="text-xs text-slate-400">{tasksInWeek.length} ภารกิจ</p></div>
-                         </div>
-                         <div className="text-xs font-mono text-slate-400">{tasksInWeek.length > 0 && `${progress}%`}</div>
-                       </button>
-                       {isExpanded && (
-                         <div className="border-t border-slate-700 bg-slate-900/30 divide-y divide-slate-700/50">
-                           {tasksInWeek.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm italic opacity-60">ยังไม่มีแผนในสัปดาห์นี้</div> : 
-                             DAYS.map(day => {
-                               const tasksInDay = tasksInWeek.filter(t => t.day === day);
-                               if (tasksInDay.length === 0) return null;
-                               return (
-                                 <div key={day} className="p-3">
-                                   <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 ml-1">{day}</h4>
-                                   <div className="space-y-2">
-                                     {tasksInDay.map(task => (
-                                       <div key={task.id} className={`flex items-start gap-3 p-3 rounded-lg border ${task.completed ? 'bg-slate-800/40 border-slate-800 opacity-60' : 'bg-slate-800 border-slate-700'}`}>
-                                         <button onClick={() => toggleTask(task.id, task.completed)} className={task.completed ? 'text-green-500' : 'text-slate-600'}>{task.completed ? <CheckCircle2 size={20} /> : <Circle size={20} />}</button>
-                                         <div className="flex-1 min-w-0"><p className={`text-sm ${task.completed ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.text}</p><div className="mt-1 flex items-center gap-2 text-xs"><CategoryBadge categoryId={task.category} /></div></div>
-                                         <button onClick={() => deleteTask(task.id)} className="text-slate-600 hover:text-red-400"><Trash2 size={16} /></button>
-                                       </div>
-                                     ))}
-                                   </div>
-                                 </div>
-                               );
-                             })
-                           }
-                         </div>
-                       )}
-                     </div>
-                   );
-                })}
-              </div>
-            )}
-            
-            {viewMode === 'category' && (
-              <div className="space-y-4">
-                 <h3 className="text-lg font-bold text-slate-200 flex items-center gap-2">
-                   <Layers size={20} className="text-purple-400" /> 
-                   Categories in {currentViewMonthData.label}
-                </h3>
-                {CATEGORIES.map(cat => {
-                  // Filter tasks by both category AND currently selected month
-                  const tasksInCat = filteredTasks.filter(t => t.category === cat.id);
-                  if (tasksInCat.length === 0) return null;
-                  const isExpanded = expandedSection === cat.id;
-                  return (
-                    <div key={cat.id} className={`rounded-xl border overflow-hidden ${cat.bg} ${cat.border}`}>
-                       <button onClick={() => setExpandedSection(isExpanded ? null : cat.id)} className="w-full flex items-center justify-between p-4">
-                         <div className="flex items-center gap-3">
-                           <div className={`p-2 rounded-lg ${cat.bg}`}><cat.icon size={18} className={cat.color} /></div>
-                           <h3 className={`text-sm font-bold ${cat.color}`}>{cat.label} ({tasksInCat.length})</h3>
-                         </div>
-                       </button>
-                       {isExpanded && <div className="p-3 space-y-2 border-t border-slate-700/50 bg-slate-900/50">{tasksInCat.map(task => (
-                           <div key={task.id} className={`flex items-center gap-3 p-2 rounded border ${task.completed ? 'border-slate-800 opacity-60' : 'border-slate-700'}`}>
-                             <button onClick={() => toggleTask(task.id, task.completed)}>{task.completed ? <CheckCircle2 size={16} className="text-green-500"/> : <Circle size={16} className="text-slate-500"/>}</button>
-                             <div className="flex-1">
-                               <span className="text-sm text-slate-300 block">{task.text}</span>
-                               <span className="text-[10px] text-slate-500 bg-slate-800 px-1 rounded">Week {task.week} • {task.day}</span>
-                             </div>
-                           </div>
-                       ))}</div>}
-                    </div>
-                  )
-                })}
-                {filteredTasks.length === 0 && (
-                   <div className="p-8 text-center text-slate-500 text-sm">ไม่มีภารกิจในเดือนนี้สำหรับหมวดหมู่ใดๆ</div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+            const routineStats = useMemo(() => {
+                const startOfWeek = getStartOfWeek(currentDate);
+                const weekDays = getWeekDays(startOfWeek);
+                let totalPossible = 0;
+                let totalCompleted = 0;
+                weekDays.forEach(day => {
+                    const key = formatDateKey(day);
+                    const dayData = routines[key] || {};
+                    const habits = [...HABITS.morning, ...HABITS.evening];
+                    totalPossible += habits.length;
+                    habits.forEach(h => { if (dayData[h.id]) totalCompleted++; });
+                });
+                const percentage = totalPossible === 0 ? 0 : Math.round((totalCompleted / totalPossible) * 100);
+                return { percentage, totalCompleted, totalPossible };
+            }, [routines, currentDate]);
 
-        {/* === ROUTINE TAB === */}
-        {activeTab === 'routine' && (
-          <div className="space-y-6">
-            
-            {/* Week Navigator */}
-            <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700">
-               <button onClick={() => setCurrentDate(d => new Date(d.setDate(d.getDate() - 7)))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white"><ChevronLeft size={20}/></button>
-               <div className="text-center">
-                 <h2 className="text-sm font-bold text-slate-200">
-                    {getStartOfWeek(currentDate).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })} - {new Date(getStartOfWeek(currentDate).getTime() + 6*24*60*60*1000).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}
-                 </h2>
-                 <p className="text-xs text-slate-500">{currentDate.getFullYear()}</p>
-               </div>
-               <button onClick={() => setCurrentDate(d => new Date(d.setDate(d.getDate() + 7)))} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white"><ChevronRight size={20}/></button>
-            </div>
-
-            {/* Weekly Summary Card */}
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-2xl p-6 relative overflow-hidden">
-               <div className="flex justify-between items-start z-10 relative">
-                  <div>
-                    <h3 className="text-lg font-bold text-white mb-1">ผลประกอบการรายสัปดาห์</h3>
-                    <p className="text-sm text-slate-400 mb-4">ทำสำเร็จ: <span className="text-blue-400">{routineStats.totalCompleted}/{routineStats.totalPossible}</span> รายการ</p>
-                    
-                    <div className="inline-block px-3 py-1 rounded bg-slate-700/50 border border-slate-600 text-xs text-slate-300">
-                       {routineStats.percentage >= 80 ? '🔥 สุดยอดมาก รักษาความฟิตนี้ไว้!' : 
-                        routineStats.percentage >= 50 ? '👍 ทำได้ดี พยายามเก็บอีกนิด' : 
-                        '💪 สู้ๆ เริ่มใหม่ได้เสมอ'}
-                    </div>
-                  </div>
-                  
-                  {/* Simple CSS Chart */}
-                  <div className="relative w-20 h-20 flex items-center justify-center">
-                     <svg className="w-full h-full transform -rotate-90">
-                       <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-700" />
-                       <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" 
-                         strokeDasharray={226} strokeDashoffset={226 - (226 * routineStats.percentage) / 100} 
-                         className={`transition-all duration-1000 ${routineStats.percentage >= 80 ? 'text-green-500' : 'text-orange-500'}`} />
-                     </svg>
-                     <span className="absolute text-sm font-bold text-white">{routineStats.percentage}%</span>
-                  </div>
-               </div>
-            </div>
-
-            {/* Daily Checklist */}
-            <div className="space-y-4">
-              {getWeekDays(getStartOfWeek(currentDate)).map(date => {
-                const dateKey = formatDateKey(date);
-                const isToday = formatDateKey(new Date()) === dateKey;
-                const dayData = routines[dateKey] || {};
-                
-                // Calculate daily progress
-                const habits = [...HABITS.morning, ...HABITS.evening];
-                const dayCompleted = habits.filter(h => dayData[h.id]).length;
-                const dayTotal = habits.length;
-
-                return (
-                  <div key={dateKey} className={`rounded-xl border transition-all ${isToday ? 'bg-slate-800 border-blue-500/50 shadow-lg shadow-blue-500/10' : 'bg-slate-800/40 border-slate-700/50'}`}>
-                    {/* Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
-                       <div className="flex items-center gap-3">
-                          <div className={`flex flex-col items-center justify-center w-10 h-10 rounded-lg border ${isToday ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-400'}`}>
-                             <span className="text-[10px] uppercase font-bold">{date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
-                             <span className="text-sm font-bold leading-none">{date.getDate()}</span>
-                          </div>
-                          <div>
-                             <h4 className={`text-sm font-bold ${isToday ? 'text-blue-400' : 'text-slate-300'}`}>{isToday ? 'วันนี้' : date.toLocaleDateString('th-TH', { weekday: 'long' })}</h4>
-                             <div className="flex gap-1 mt-1">
-                               {Array.from({length: dayTotal}).map((_, i) => (
-                                 <div key={i} className={`h-1.5 w-3 rounded-full ${i < dayCompleted ? (isToday ? 'bg-blue-500' : 'bg-slate-400') : 'bg-slate-700'}`}></div>
-                               ))}
-                             </div>
-                          </div>
-                       </div>
-                    </div>
-
-                    {/* Checkboxes Grid */}
-                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
-                       {/* Morning */}
-                       <div>
-                          <h5 className="text-xs font-semibold text-orange-400 mb-2 flex items-center gap-1 uppercase tracking-wider"><Sun size={12}/> Morning</h5>
-                          <div className="space-y-2">
-                             {HABITS.morning.map(habit => (
-                               <label key={habit.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-700/30 cursor-pointer group">
-                                  <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${dayData[habit.id] ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-600 group-hover:border-slate-500'}`}>
-                                    {dayData[habit.id] && <CheckCircle2 size={14} />}
-                                  </div>
-                                  <input type="checkbox" className="hidden" checked={!!dayData[habit.id]} onChange={() => toggleRoutine(dateKey, habit.id, dayData[habit.id])} />
-                                  <span className={`text-sm ${dayData[habit.id] ? 'text-slate-200' : 'text-slate-400'}`}>{habit.label}</span>
-                               </label>
-                             ))}
-                          </div>
-                       </div>
-
-                       {/* Evening */}
-                       <div>
-                          <h5 className="text-xs font-semibold text-purple-400 mb-2 flex items-center gap-1 uppercase tracking-wider"><Moon size={12}/> Evening</h5>
-                          <div className="space-y-2">
-                             {HABITS.evening.map(habit => (
-                               <label key={habit.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-700/30 cursor-pointer group">
-                                  <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${dayData[habit.id] ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-600 group-hover:border-slate-500'}`}>
-                                    {dayData[habit.id] && <CheckCircle2 size={14} />}
-                                  </div>
-                                  <input type="checkbox" className="hidden" checked={!!dayData[habit.id]} onChange={() => toggleRoutine(dateKey, habit.id, dayData[habit.id])} />
-                                  <span className={`text-sm ${dayData[habit.id] ? 'text-slate-200' : 'text-slate-400'}`}>{habit.label}</span>
-                               </label>
-                             ))}
-                          </div>
-                       </div>
-                    </div>
-                  </div>
+            const currentViewMonthData = ALL_MONTHS.find(m => m.id === viewMonthId) || ALL_MONTHS[0];
+            const filteredTasks = tasks.filter(t => currentViewMonthData.weeks.includes(t.week));
+            const CategoryBadge = ({ categoryId }) => {
+                const cat = CATEGORIES.find(c => c.id === categoryId) || CATEGORIES[0];
+                const Icon = cat.icon;
+                return React.createElement('span', { className: `inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cat.color} bg-slate-800 border ${cat.border}` },
+                    React.createElement(Icon, { size: 10 }), cat.label
                 );
-              })}
-            </div>
-          </div>
-        )}
+            };
 
-      </main>
+            // --- Render UI ---
+            return (
+                <div className="min-h-screen bg-slate-900 text-slate-100 font-sans pb-24">
+                    {/* Top Header */}
+                    <div className="bg-slate-800 border-b border-slate-700 sticky top-0 z-20 shadow-lg">
+                        <div className="max-w-3xl mx-auto p-4 flex justify-between items-center">
+                            
+                            {/* LOGO & TITLE */}
+                            <div className="flex items-center gap-3">
+                                <img 
+                                    src="logo.png" 
+                                    alt="Logo" 
+                                    className="w-12 h-12 object-contain rounded-full bg-slate-700/50" 
+                                    onError={(e) => e.target.style.display = 'none'}
+                                />
+                                <div>
+                                    <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                                        AutoZaytion
+                                    </h1>
+                                    <p className="text-xs text-slate-400">
+                                        {activeTab === 'tasks' ? 'Project Tracker' : 'Goal Routine'}
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            {/* Header Stats */}
+                            {activeTab === 'tasks' ? (
+                                <div className="text-right">
+                                    <div className="text-xl font-bold text-yellow-400 flex items-center justify-end gap-1">
+                                        <Trophy size={18} /> LV.{taskStats.level}
+                                    </div>
+                                    <p className="text-xs text-slate-500">{taskStats.percentage}% Tasks Done</p>
+                                </div>
+                            ) : (
+                                <div className="text-right">
+                                    <div className={`text-xl font-bold flex items-center justify-end gap-1 ${routineStats.percentage >= 80 ? 'text-green-400' : 'text-orange-400'}`}>
+                                        <Activity size={18} /> {routineStats.percentage}%
+                                    </div>
+                                    <p className="text-xs text-slate-500">Weekly Discipline</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 p-2 z-50">
-        <div className="max-w-md mx-auto flex justify-center gap-2">
-           <button 
-             onClick={() => setActiveTab('tasks')}
-             className={`flex-1 py-3 rounded-xl flex flex-col items-center gap-1 text-xs font-medium transition-all ${
-               activeTab === 'tasks' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'text-slate-400 hover:bg-slate-700'
-             }`}
-           >
-             <ListTodo size={20} /> Project Tasks
-           </button>
-           <button 
-             onClick={() => setActiveTab('routine')}
-             className={`flex-1 py-3 rounded-xl flex flex-col items-center gap-1 text-xs font-medium transition-all ${
-               activeTab === 'routine' ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/50' : 'text-slate-400 hover:bg-slate-700'
-             }`}
-           >
-             <CalendarDays size={20} /> Goal Routine
-           </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+                    <main className="max-w-3xl mx-auto p-4">
+                        {/* === TASKS TAB === */}
+                        {activeTab === 'tasks' && (
+                            <div className="space-y-6">
+                                {/* Month Navigator */}
+                                <div className="overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
+                                    <div className="flex gap-2 min-w-max">
+                                        {ALL_MONTHS.map(month => (
+                                            <button
+                                                key={month.id}
+                                                onClick={() => setViewMonthId(month.id)}
+                                                className={`flex flex-col items-center justify-center px-4 py-2 rounded-xl border transition-all ${
+                                                viewMonthId === month.id 
+                                                    ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/50' 
+                                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                                                }`}
+                                            >
+                                                <span className="text-sm font-bold">{month.shortName}</span>
+                                                <span className="text-[10px] opacity-70">Wks {month.weeks[0]}-{month.weeks[3]}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Input Section */}
+                                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 backdrop-blur-sm">
+                                    <form onSubmit={handleAddTask} className="space-y-3">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            <select value={inputMonthId} onChange={handleInputMonthChange} className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg p-2.5">
+                                                {ALL_MONTHS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                            </select>
+                                            <select value={inputWeek} onChange={(e) => setInputWeek(Number(e.target.value))} className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg p-2.5">
+                                                {currentInputMonthData.weeks.map(w => <option key={w} value={w}>Week {w}</option>)}
+                                            </select>
+                                            <select value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)} className="col-span-2 sm:col-span-2 bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg p-2.5">
+                                                {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            {CATEGORIES.map(cat => (
+                                                <button key={cat.id} type="button" onClick={() => setSelectedCategory(cat.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${selectedCategory === cat.id ? `${cat.bg} ${cat.border} ${cat.color}` : 'bg-slate-900 border-slate-700 text-slate-400'}`}>
+                                                    <cat.icon size={12} /> {cat.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input type="text" value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มภารกิจใหม่..." className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg block w-full p-2.5" />
+                                            <button type="submit" disabled={!newTask.trim()} className="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50"><Plus size={18} /></button>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                {/* Task Display */}
+                                {viewMode === 'week' && (
+                                    <div className="space-y-4">
+                                        {currentViewMonthData.weeks.map(weekNum => {
+                                            const tasksInWeek = tasks.filter(t => t.week === weekNum);
+                                            const isExpanded = expandedSection === weekNum;
+                                            return (
+                                                <div key={weekNum} className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+                                                    <button onClick={() => setExpandedSection(isExpanded ? null : weekNum)} className="w-full flex items-center justify-between p-4 hover:bg-slate-750">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center font-bold text-sm">{weekNum}</div>
+                                                            <div className="text-left"><h3 className="text-sm font-semibold text-slate-200">Week {weekNum}</h3></div>
+                                                        </div>
+                                                        <div className="text-xs text-slate-400">{tasksInWeek.length} Tasks</div>
+                                                    </button>
+                                                    {isExpanded && (
+                                                        <div className="border-t border-slate-700 bg-slate-900/30 p-2 space-y-2">
+                                                            {tasksInWeek.length === 0 ? <div className="text-center text-slate-500 text-sm py-4">No tasks yet</div> : 
+                                                                tasksInWeek.map(task => (
+                                                                    <div key={task.id} className="flex items-start gap-3 p-3 rounded-lg bg-slate-800 border border-slate-700">
+                                                                        <button onClick={() => toggleTask(task.id)} className={task.completed ? 'text-green-500' : 'text-slate-600'}>
+                                                                            {task.completed ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                                                                        </button>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className={`text-sm ${task.completed ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.text}</p>
+                                                                            <div className="mt-1 flex gap-2 text-xs"><CategoryBadge categoryId={task.category} /> <span className="text-slate-500">{task.day}</span></div>
+                                                                        </div>
+                                                                        <button onClick={() => deleteTask(task.id)} className="text-slate-600 hover:text-red-400"><Trash2 size={16} /></button>
+                                                                    </div>
+                                                                ))
+                                                            }
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* === ROUTINE TAB === */}
+                        {activeTab === 'routine' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                                    <button onClick={() => setCurrentDate(d => new Date(d.setDate(d.getDate() - 7)))} className="p-2 text-slate-400 hover:text-white"><ChevronLeft size={20}/></button>
+                                    <span className="text-sm font-bold text-slate-200">
+                                        {getStartOfWeek(currentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                    </span>
+                                    <button onClick={() => setCurrentDate(d => new Date(d.setDate(d.getDate() + 7)))} className="p-2 text-slate-400 hover:text-white"><ChevronRight size={20}/></button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {getWeekDays(getStartOfWeek(currentDate)).map(date => {
+                                        const dateKey = formatDateKey(date);
+                                        const isToday = formatDateKey(new Date()) === dateKey;
+                                        const dayData = routines[dateKey] || {};
+                                        return (
+                                            <div key={dateKey} className={`rounded-xl border p-4 ${isToday ? 'bg-slate-800 border-blue-500' : 'bg-slate-800/40 border-slate-700'}`}>
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <h4 className={`text-sm font-bold ${isToday ? 'text-blue-400' : 'text-slate-300'}`}>
+                                                        {date.toLocaleDateString('en-US', { weekday: 'long' })} <span className="text-xs opacity-50">{date.getDate()}</span>
+                                                    </h4>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold text-orange-400 mb-2 flex items-center gap-1"><Sun size={12}/> Morning</h5>
+                                                        {HABITS.morning.map(habit => (
+                                                            <label key={habit.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-700/30 cursor-pointer">
+                                                                <div className={`w-5 h-5 rounded border flex items-center justify-center ${dayData[habit.id] ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-600'}`}>
+                                                                    {dayData[habit.id] && <CheckCircle2 size={14} />}
+                                                                </div>
+                                                                <input type="checkbox" className="hidden" checked={!!dayData[habit.id]} onChange={() => toggleRoutine(dateKey, habit.id)} />
+                                                                <span className={`text-sm ${dayData[habit.id] ? 'text-slate-200' : 'text-slate-400'}`}>{habit.label}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold text-purple-400 mb-2 flex items-center gap-1"><Moon size={12}/> Evening</h5>
+                                                        {HABITS.evening.map(habit => (
+                                                            <label key={habit.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-700/30 cursor-pointer">
+                                                                <div className={`w-5 h-5 rounded border flex items-center justify-center ${dayData[habit.id] ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-600'}`}>
+                                                                    {dayData[habit.id] && <CheckCircle2 size={14} />}
+                                                                </div>
+                                                                <input type="checkbox" className="hidden" checked={!!dayData[habit.id]} onChange={() => toggleRoutine(dateKey, habit.id)} />
+                                                                <span className={`text-sm ${dayData[habit.id] ? 'text-slate-200' : 'text-slate-400'}`}>{habit.label}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Bottom Nav */}
+                    <div className="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 p-2 z-50">
+                        <div className="max-w-md mx-auto flex justify-center gap-2">
+                            <button onClick={() => setActiveTab('tasks')} className={`flex-1 py-3 rounded-xl flex flex-col items-center gap-1 text-xs font-medium ${activeTab === 'tasks' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>
+                                <ListTodo size={20} /> Project
+                            </button>
+                            <button onClick={() => setActiveTab('routine')} className={`flex-1 py-3 rounded-xl flex flex-col items-center gap-1 text-xs font-medium ${activeTab === 'routine' ? 'bg-purple-600 text-white' : 'text-slate-400'}`}>
+                                <CalendarDays size={20} /> Routine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
